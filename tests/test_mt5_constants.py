@@ -9,7 +9,7 @@ from app.mt5 import connector as C  # noqa: E402
 EXPECTED = {
     "TRADE_ACTION_DEAL": 1, "TRADE_ACTION_SLTP": 6, "ORDER_TYPE_BUY": 0, "ORDER_TYPE_SELL": 1,
     "ORDER_TIME_GTC": 0, "ORDER_FILLING_FOK": 0, "ORDER_FILLING_IOC": 1, "ORDER_FILLING_RETURN": 2,
-    "SYMBOL_FILLING_FOK": 1, "SYMBOL_FILLING_IOC": 2, "POSITION_TYPE_BUY": 0, "DEAL_ENTRY_IN": 0,
+    "POSITION_TYPE_BUY": 0, "DEAL_ENTRY_IN": 0,
     "DEAL_ENTRY_OUT": 1, "DEAL_ENTRY_INOUT": 2, "DEAL_ENTRY_OUT_BY": 3, "DEAL_REASON_CLIENT": 0,
     "DEAL_REASON_MOBILE": 1, "DEAL_REASON_WEB": 2, "DEAL_REASON_EXPERT": 3, "DEAL_REASON_SL": 4,
     "DEAL_REASON_TP": 5, "DEAL_REASON_SO": 6,
@@ -25,6 +25,13 @@ EXPECTED = {
 @pytest.mark.parametrize("name,value", sorted(EXPECTED.items()))
 def test_constant_matches_package(name, value):
     assert getattr(mt5, name) == value
+
+
+def test_symbol_filling_flags_fallback():
+    """The Python package does not export the SYMBOL_FILLING_* flags (verified on Windows CI); the
+    connector uses the documented MQL5 values SYMBOL_FILLING_FOK=1, SYMBOL_FILLING_IOC=2."""
+    assert getattr(mt5, "SYMBOL_FILLING_FOK", 1) == C.SYMBOL_FILLING_FOK == 1
+    assert getattr(mt5, "SYMBOL_FILLING_IOC", 2) == C.SYMBOL_FILLING_IOC == 2
 
 
 @pytest.mark.parametrize("tf,name", sorted(C.TF_MAP_NAMES.items()))
