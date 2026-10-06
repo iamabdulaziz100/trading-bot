@@ -46,7 +46,9 @@ def run_bot(tmp_path, clock, fake: FakeMT5, days: int = DAYS):
         for step in range(24 * days):
             clock["t"] += 3600
             fake.on_clock()
-            for tf, c in await bot._blocking(bot._fetch_new_bars, "EURUSD", pipe):
+            bars, stale = await bot._blocking(bot._fetch_new_bars, "EURUSD", pipe)
+            bot._set_stale("EURUSD", stale)
+            for tf, c in bars:
                 await bot._handle_step(pipe.on_candle_closed(tf, c))
             if step % 4 == 0:
                 bot.positions_view, _ = await bot._blocking(bot.monitor.sync)

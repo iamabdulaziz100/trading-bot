@@ -37,7 +37,7 @@ class FakeMT5:
 
     def __init__(self, data: dict[str, dict[str, list[Candle]]], clock: Callable[[], float], offset: int = 7200,
                  spread: float = 0.00008, balance: float = 10_000.0, reject_fok: bool = False,
-                 drop_sltp_once: bool = False):
+                 drop_sltp_once: bool = False, ambiguous_once: bool = False, reject_modify: bool = False):
         self.data = data
         self.clock = clock
         self.offset = offset
@@ -45,6 +45,9 @@ class FakeMT5:
         self.balance = balance
         self.reject_fok = reject_fok
         self.drop_sltp_once = drop_sltp_once
+        self.ambiguous_once = ambiguous_once  # first open order executes but replies TIMEOUT
+        self.reject_modify = reject_modify
+        self._tick_seq, self._tick_clock = 0, None
         self.positions: dict[int, dict] = {}
         self.deals: list[Deal] = []
         self.requests: list[dict] = []
@@ -91,8 +94,11 @@ class FakeMT5:
         b = self._bid(symbol)
         i = self._idx(symbol, "1H")
         bar_open = self.data[symbol]["1H"][max(i, 0)].time
-        # market closed (weekend gap) → the last tick is from the last bar, like a real terminal
-        t = min(int(self.clock()), bar_open + 3599)
+        # ticks keep arriving while the market is open; in a weekend gap the last tick is frozen
+        if self._tick_clock != self.clock():
+            self._tick_clock, self._tick_seq = self.clock(), 0
+        self._tick_seq = min(self._tick_seq + 1, 50)
+        t = min(int(self.clock()) + self._tick_seq, bar_open + 3599)
         return Tick(t + self.offset, b, round(b + self.spread, 5))
 
     def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
@@ -144,6 +150,8 @@ class FakeMT5:
         self.requests.append(dict(req))
         if req["action"] == 6:  # SLTP
             p = self.positions.get(req["position"])
+            if self.reject_modify:
+                return Result(10016, 0, 0, 0.0, 0.0, "invalid stops")
             if p is None:
                 return Result(10013, 0, 0, 0.0, 0.0, "invalid")
             p["sl"], p["tp"] = req["sl"], req["tp"]
@@ -167,10 +175,27 @@ class FakeMT5:
              "comment": req["comment"]}
         self.positions[t] = p
         d = self._deal(p, 0, req["price"], 3, 0.0)
+        if self.ambiguous_once:
+            self.ambiguous_once = False
+            return Result(10012, 0, 0, 0.0, 0.0, "timeout")  # executed, but the reply says timeout
         return Result(10009, d.ticket, t, req["volume"], req["price"], "done")
 
-    def history_deals_get(self, position=None, **kw):
-        return tuple(d for d in self.deals if d.position_id == position)
+    def open_naked(self, symbol: str, lots: float = 0.1, magic: int = 20260922, comment: str = "manual") -> int:
+        """Simulate a bot position that somehow has no SL/TP."""
+        self.next_ticket += 1
+        t = self.next_ticket
+        self.positions[t] = {"ticket": t, "time": int(self.clock()) + self.offset, "type": 0, "magic": magic,
+                             "volume": lots, "price_open": self._bid(symbol) + self.spread, "sl": 0.0, "tp": 0.0,
+                             "symbol": symbol, "comment": comment}
+        return t
+
+    def history_deals_get(self, *args, position=None, **kw):
+        if position is not None:
+            return tuple(d for d in self.deals if d.position_id == position)
+        if len(args) >= 2:
+            lo, hi = args[0], args[1]
+            return tuple(d for d in self.deals if lo <= d.time <= hi)
+        return tuple(self.deals)
 
     # ── server-side SL/TP ──────────────────────────────────────────────────────────────
     def on_clock(self) -> None:

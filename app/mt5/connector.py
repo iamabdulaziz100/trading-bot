@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Any
@@ -95,12 +96,25 @@ class MT5Connector:
             "MetaTrader5 Python package not available (Windows + MT5 terminal required)"
         self.server_offset = 0  # seconds: server_time − UTC
         self.offset_known = False
+        self._pending_offset: int | None = None
+        # Optional fixed broker offset (e.g. MSC_MT5_SERVER_OFFSET_HOURS=3) disables auto-detection
+        env_off = os.environ.get("MSC_MT5_SERVER_OFFSET_HOURS", "").strip()
+        self.offset_override: int | None = int(float(env_off) * 3600) if env_off else None
+        if self.offset_override is not None:
+            self.server_offset, self.offset_known = self.offset_override, True
         self.terminal: dict[str, Any] | None = None
         self.account_cache: tuple[float, dict[str, Any]] | None = None
+        # Held for whole multi-call operations (an order + its verification, a position sync) so
+        # the watchdog cannot reconnect/shutdown the terminal session in the middle of them.
+        self.op_lock = threading.RLock()
 
     # ── connection ─────────────────────────────────────────────────────────────────────
     def connect(self, attempts: int = 5) -> bool:
         """mt5.initialize(path?, login?, password?, server?) with 5 retries, backoff 2^n s."""
+        with self.op_lock:
+            return self._connect(attempts)
+
+    def _connect(self, attempts: int) -> bool:
         if not self.available:
             self.connected = False
             return False
@@ -136,15 +150,16 @@ class MT5Connector:
         return False
 
     def shutdown(self) -> None:
-        if self.available:
-            with _LOCK:
-                mt5.shutdown()
-        self.connected = False
+        with self.op_lock:
+            if self.available:
+                with _LOCK:
+                    mt5.shutdown()
+            self.connected = False
 
     def ping(self) -> bool:
         if not self.available:
             return False
-        with _LOCK:
+        with self.op_lock, _LOCK:
             info = mt5.terminal_info()
         ok = info is not None and bool(_nt(info).get("connected", False))
         if info is not None:
@@ -227,31 +242,57 @@ class MT5Connector:
         return {"bid": float(d["bid"]), "ask": float(d["ask"]), "time_server": int(d["time"]),
                 "time_utc": int(d["time"]) - self.server_offset}
 
-    def detect_server_offset(self, symbols: list[str]) -> int | None:
-        """Broker UTC offset = freshest tick server time − UTC now, rounded to 15 min. Only
-        trusted when a tick is recent (market open); otherwise the previous value is kept."""
-        if not self.available or not self.connected:
-            return None
+    def _freshest_tick_time(self, symbols: list[str]) -> int | None:
         best = None
-        for s in symbols:
+        for sym in symbols:
             try:
                 with _LOCK:
-                    mt5.symbol_select(s, True)
-                    t = mt5.symbol_info_tick(s)
+                    mt5.symbol_select(sym, True)
+                    t = mt5.symbol_info_tick(sym)
                 if t is not None:
                     best = max(best or 0, int(t.time))
             except Exception:
                 continue
-        if best is None:
+        return best
+
+    def detect_server_offset(self, symbols: list[str], wait: float = 10.0) -> int | None:
+        """Broker UTC offset = freshest tick server time − UTC now, rounded to 15 min (04 §6).
+
+        Only trusted while ticks are actually ARRIVING (the freshest tick time must advance within
+        ``wait`` seconds) — on weekends the last tick is days old and would yield garbage. After the
+        first detection only a ±1 h change (DST) is accepted directly; any other jump must be read
+        twice in a row. ``MSC_MT5_SERVER_OFFSET_HOURS`` fixes the offset and disables detection.
+        Returns the confirmed offset, or None when it cannot be determined now."""
+        if self.offset_override is not None:
+            return self.server_offset
+        if not self.available or not self.connected:
+            return None
+        first = self._freshest_tick_time(symbols)
+        if first is None:
+            return None
+        deadline = time.monotonic() + wait
+        best = first
+        while best <= first and time.monotonic() < deadline:
+            time.sleep(0.5)
+            best = self._freshest_tick_time(symbols) or best
+        if best <= first:
+            log.info("server offset not detectable now (no fresh ticks — market closed?) — keeping %+.2fh",
+                     self.server_offset / 3600)
             return None
         raw = best - time.time()
         rounded = int(round(raw / 900.0) * 900)
         if abs(raw - rounded) > 180 or abs(rounded) > 14 * 3600:
-            log.info("server offset not detectable now (stale ticks, raw=%.0fs) — keeping %ds", raw,
-                     self.server_offset)
+            log.info("server offset reading implausible (raw=%.0fs) — keeping %+.2fh", raw, self.server_offset / 3600)
             return None
+        if self.offset_known and rounded != self.server_offset:
+            if abs(rounded - self.server_offset) != 3600 and rounded != self._pending_offset:
+                self._pending_offset = rounded
+                log.warning("server offset reading %+.2fh differs from %+.2fh — waiting for confirmation",
+                            rounded / 3600, self.server_offset / 3600)
+                return None
+        self._pending_offset = None
         if rounded != self.server_offset or not self.offset_known:
-            log.info("broker server UTC offset detected: %+.2fh", rounded / 3600)
+            log.info("broker server UTC offset: %+.2fh", rounded / 3600)
         self.server_offset, self.offset_known = rounded, True
         return rounded
 
@@ -286,6 +327,23 @@ class MT5Connector:
             return {"retcode": -1, "comment": f"order_send returned None: {err}", "deal": 0, "order": 0,
                     "price": 0.0, "volume": 0.0}
         return _nt(res)
+
+    def deals_between(self, start_utc: float, end_utc: float) -> list[dict[str, Any]]:
+        """Deals in [start, end] (UTC epoch; padded by a day each side because the terminal
+        interprets the bounds in server time)."""
+        self._require()
+        lo = int(start_utc + self.server_offset - 86400)
+        hi = int(end_utc + self.server_offset + 86400)
+        with _LOCK:
+            deals = mt5.history_deals_get(lo, hi)
+        if deals is None:
+            return []
+        out = []
+        for d in deals:
+            x = _nt(d)
+            x["time_utc"] = int(x["time"]) - self.server_offset
+            out.append(x)
+        return out
 
     def history_deals_for_position(self, position_id: int) -> list[dict[str, Any]]:
         self._require()

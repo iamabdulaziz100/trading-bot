@@ -78,7 +78,7 @@ class DuplicateSignal(JournalError):
 
 def iso(ts: float | datetime | None = None) -> str:
     if ts is None:
-        dt = datetime.now(timezone.utc)
+        dt = datetime.fromtimestamp(time.time(), tz=timezone.utc)
     elif isinstance(ts, datetime):
         dt = ts.astimezone(timezone.utc)
     else:

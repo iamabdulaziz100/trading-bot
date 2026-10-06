@@ -39,6 +39,12 @@ demo account in a handful of losses. If the higher numbers were intended, change
 
 | Topic | Decision |
 |---|---|
+| Ambiguous order replies | No reply / TIMEOUT / ERROR / CONNECTION / LOCKED may still have executed: the bot looks for a position or entry deal carrying the order comment `MSC|<signal_id>` before any re-send. Only clear rejections (requote, price changed/off, reject, too many requests) are retried, and each retry re-checks enabled state, zone tolerance and R:R at the new price. |
+| Naked-position safety sweep | Every sync (30 s) and at startup: a bot position without SL or TP gets its journaled bracket attached once; still naked on the next pass (or no journaled bracket) → closed; a close that fails halts trading. This is the only modification the bot ever sends to an open position. |
+| Session lock | An order and its verification, a position sync, panic and reconnects never interleave (`conn.op_lock` + the bot's asyncio lock). |
+| Magic number | Fixed at startup; changing `mt5.magic_number` takes effect only after a restart (otherwise open positions would be orphaned). |
+| Broker UTC offset | Detected only while ticks are arriving (freshest tick time must advance), re-checked hourly; after the first detection only a ±1 h DST change is accepted directly, other jumps need two consecutive readings. Any change after warm-up triggers a full structure rebuild. `MSC_MT5_SERVER_OFFSET_HOURS` fixes it. |
+| Crash recovery | Trading starts only after the startup reconcile succeeded. PENDING rows are resolved from open positions or deal history by order comment (so fills/P&L during downtime are not lost). |
 | Gate order | ENABLED → NEWS → DAILY_LOSS → MAX_TRADES_DAY (only if > 0) → CONCURRENCY → SYMBOL_DUP → SIZING, stop at first BLOCK; all evaluated gates journaled. Disabled/halted bots still evaluate and journal signals (as REJECTED: ENABLED). |
 | Pending/stale | Pre-trade checks (TTL 300 s, price within 10 pips of the AOI edge) run in both live and backtest. |
 | NO_MONEY | Symbol blocked until the next trading day (04 §7). |

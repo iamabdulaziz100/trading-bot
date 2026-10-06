@@ -58,6 +58,7 @@ MSC_MT5_LOGIN=12345678
 MSC_MT5_PASSWORD=your-password
 MSC_MT5_SERVER=Broker-Server-Name
 MSC_MT5_PATH=            ; optional: C:\Program Files\MetaTrader 5\terminal64.exe
+MSC_MT5_SERVER_OFFSET_HOURS=   ; optional: fixed broker UTC offset, otherwise auto-detected
 ```
 
 ### Auto-start (optional)
@@ -109,7 +110,10 @@ judgment calls in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 * SL and TP are attached to every order; if the broker drops them the bot modifies **once**, and if
   that fails it **closes the position immediately** (no naked positions). After placement the bot
   never modifies a position.
-* One execution per signal id (unique DB constraint) — retries/crashes cannot duplicate orders.
+* One execution per signal id (unique DB constraint); an order whose reply is ambiguous (timeout,
+  no reply) is looked up on the broker by its comment before anything is re-sent — no duplicates.
+* Every 30 s a safety sweep checks that each bot position carries SL and TP (attach the journaled
+  bracket once, otherwise close it).
 * Realized R:R after slippage < `min_rr − rr_slippage_tolerance` → immediate close (`RR_SLIPPAGE_ABORT`).
 * Daily loss ≤ −3 % of the day-start balance (realized + floating) → no new entries until the next
   day boundary. News blackout ±30 min around high-impact events for either currency.
