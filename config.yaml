@@ -1,0 +1,120 @@
+# MSC Bot configuration — see docs/spec/07_configuration_schema.md
+# Credentials: leave login/password/server empty here and put them in a local `.env`
+# (MSC_MT5_LOGIN / MSC_MT5_PASSWORD / MSC_MT5_SERVER) — `.env` is git-ignored.
+
+# ── MT5 connection ────────────────────────────────────────────────
+mt5:
+  path: ""                  # optional terminal64.exe path
+  login: 0                  # 0 = use already-logged-in terminal
+  password: ""
+  server: ""
+  magic_number: 20260922
+  max_slippage_points: 10
+
+# ── Universe (owner: forex majors/minors only) ────────────────────
+symbols: ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "EURGBP"]
+timeframes:
+  htf: ["1W", "1D", "4H"]          # trend state machines (pillar 1)
+  execution: "1H"                  # 1H | 30M | 15M
+
+# ── Structure engine (formal spec §2 + §3 Snake Trick) ────────────
+structure:
+  body_based_swings: true          # pivots on BodyHigh/BodyLow — DO NOT disable for spec fidelity
+  pivot_window_n: 5                # symmetric N-bar window (formal spec §2.2)
+  pivot_tie_rule: "first_of_equal" # [DECISION] equal body extremes on the right: first_of_equal | strict
+  min_swing_atr_mult: 0.5          # optional bump filter; 0 = pure N-window per formal spec
+  min_swing_pips: 10               # absolute floor for the bump filter
+  atr_period: 14
+  lookback:                        # strategy §5.1
+    "1W": {years: 6}
+    "1D": {years: 2}
+    "4H": {months: 12}
+
+# ── AOI clustering (formal spec §5) ───────────────────────────────
+aoi:
+  min_touches: 3                   # Touches(Z) ≥ 3
+  min_width_pips: 5                # 5×pip ≤ W
+  max_width_pips: 60               # W ≤ 60×pip
+  sweep_step_pips: 1               # vertical window sweep granularity
+  merge_tolerance_atr_mult: 0.25
+  merge_tolerance_min_pips: 10
+  zone_timeframes: ["1W", "1D"]    # pillar-2 qualifying TFs
+  allow_4h_zones: false
+  boundary_confinement: true       # zones strictly inside active HH/HL or LH/LL range
+
+# ── Structural patterns (formal spec §6) ──────────────────────────
+patterns:
+  break_retest:
+    retest_window_bars: 15
+    retest_tolerance_pips: 5       # BodyLow ≥ z_min − tol (bull) / BodyHigh ≤ z_max + tol (bear)
+    expiry_bars: 20
+  head_shoulders:
+    neckline_threshold_atr_mult: 0.6   # |V2 − V1| alignment tolerance (two-trough neckline)
+    expiry_bars: 20
+
+# ── Candlestick triggers (formal spec §7 — exact ratios) ──────────
+candles:
+  star_indecision_body_ratio: 0.35     # |C−O| ≤ 0.35 × (H−L) for star middle candle
+  hammer_wick_ratio: 0.60              # rejection wick ≥ 0.60 × range
+  hammer_body_ratio: 0.25              # body ≤ 0.25 × range
+  engulf_lookback: 2                   # engulf bodies of BOTH prior candles
+  triggers: ["BULL_ENGULF", "BEAR_ENGULF", "MORNING_STAR", "EVENING_STAR",
+             "HAMMER", "SHOOTING_STAR"]   # formal spec §7: all five are full triggers
+
+# ── Confluence / decision ─────────────────────────────────────────
+confluence:
+  min_pillars: 3                   # ≥3 of 4 pillars required; 2-pillar = journal-only
+  ema_period: 50                   # EMA50 bonus filter (α = 2/51)
+  ema_counts_as_confluence: false  # "car hood" rule: never a standalone reason
+
+# ── Trade parameters (formal spec §9) ─────────────────────────────
+trade:
+  sl_buffer_pips: 15               # beyond trigger-candle/formation wick; band 10–20
+  tp_r_multiple: 2.0               # R ∈ [2.0, 4.0]
+  tp_cap_at_structure: true        # cap TP at active_HH (long) / active_LL (short)
+  min_rr: 2.0                      # reject if structure cap forces R:R below this
+  rr_slippage_tolerance: 0.2
+  signal_ttl_seconds: 300
+  entry_zone_tolerance_pips: 10
+  one_trade_per_symbol: true
+  breakeven_enabled: false         # v2 — set & forget is the rule
+  trailing_enabled: false          # v2
+  partial_close_enabled: false     # v2
+
+# ── Risk management ───────────────────────────────────────────────
+risk:
+  risk_per_trade_pct: 1.0          # Units = (balance × pct) / |entry − SL|
+  risk_per_trade_pct_max: 1.5      # only used if pillar_risk_scaling on
+  pillar_risk_scaling: false
+  max_daily_loss_pct: 3.0          # owner-selected cutoff
+  max_concurrent_trades: 3
+  max_trades_per_day: 0            # 0 = disabled (owner choice)
+  day_boundary: "server"           # server | utc
+
+# ── News blackout (owner-selected) ────────────────────────────────
+news:
+  enabled: true
+  feed_url: ""                     # empty = built-in default calendar source
+  poll_minutes: 60
+  impact_levels: ["high"]
+  block_before_min: 30
+  block_after_min: 30
+  feed_failure_mode: "allow"       # allow | block_all
+
+# ── Backtesting ───────────────────────────────────────────────────
+backtest:
+  initial_balance: 10000
+  leverage: 100
+  spread_pips_default: 1.0
+  slippage_pips: 0.5
+  commission_per_lot: 0.0
+  apply_news_filter: false         # no bundled historical calendar — documented limitation
+  symbol_specs_file: "config/bt_symbol_specs.yaml"
+
+# ── Server / UI ───────────────────────────────────────────────────
+server:
+  host: "127.0.0.1"
+  port: 8000
+  api_token: ""                    # only if host != 127.0.0.1
+  log_level: "INFO"
+  data_dir: "data"

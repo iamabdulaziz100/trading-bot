@@ -1,0 +1,37 @@
+# ── Secrets / personal files (NEVER commit) ──────────────────────
+password.txt
+*.webp
+.env
+.env.*
+!.env.example
+secrets.yaml
+
+# ── Python ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+
+# ── Runtime data ─────────────────────────────────────────────────
+data/*.db
+data/*.db-*
+data/history/*
+!data/history/.gitkeep
+data/uploads/
+logs/*
+!logs/.gitkeep
+
+# ── Frontend (web/dist IS committed so Windows needs no Node) ────
+web/node_modules/
+web/.vite/
+
+# ── OS / editors ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,17 @@
+# Backtest symbol spec table (docs/spec/05_backtesting_spec.md §2). Editable from the UI.
+# Account currency for backtests is USD.
+#   pip_value_per_lot: USD per pip per 1.0 lot, or "auto" = derived from price when USD is the
+#                      base or quote currency (EURUSD → 10.0; USDJPY → 1000 / price).
+#                      Crosses (EURGBP …) need a number; update it to the current rate.
+#   base_to_usd:       approximate USD value of 1 unit of the BASE currency, used only by the
+#                      simplified margin model for crosses (XXXUSD / USDXXX are derived).
+EURUSD: {pip_size: 0.0001, digits: 5, pip_value_per_lot: auto, contract_size: 100000, spread_pips: 1.0, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+GBPUSD: {pip_size: 0.0001, digits: 5, pip_value_per_lot: auto, contract_size: 100000, spread_pips: 1.2, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+AUDUSD: {pip_size: 0.0001, digits: 5, pip_value_per_lot: auto, contract_size: 100000, spread_pips: 1.0, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+NZDUSD: {pip_size: 0.0001, digits: 5, pip_value_per_lot: auto, contract_size: 100000, spread_pips: 1.4, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+USDJPY: {pip_size: 0.01, digits: 3, pip_value_per_lot: auto, contract_size: 100000, spread_pips: 1.0, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+USDCAD: {pip_size: 0.0001, digits: 5, pip_value_per_lot: auto, contract_size: 100000, spread_pips: 1.4, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+USDCHF: {pip_size: 0.0001, digits: 5, pip_value_per_lot: auto, contract_size: 100000, spread_pips: 1.4, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+EURGBP: {pip_size: 0.0001, digits: 5, pip_value_per_lot: 12.7, base_to_usd: 1.10, contract_size: 100000, spread_pips: 1.2, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+EURJPY: {pip_size: 0.01, digits: 3, pip_value_per_lot: 6.7, base_to_usd: 1.10, contract_size: 100000, spread_pips: 1.5, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
+GBPJPY: {pip_size: 0.01, digits: 3, pip_value_per_lot: 6.7, base_to_usd: 1.27, contract_size: 100000, spread_pips: 2.0, commission_per_lot: 0.0, min_lot: 0.01, max_lot: 100, lot_step: 0.01}
